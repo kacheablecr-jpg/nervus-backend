@@ -4,8 +4,8 @@ WORKDIR /app
 
 RUN npm install -g pnpm
 
-COPY package.json pnpm-lock.yaml ./
-RUN pnpm install
+COPY package.json ./
+RUN pnpm install --no-frozen-lockfile
 
 COPY tsconfig*.json nest-cli.json ./
 COPY src ./src
