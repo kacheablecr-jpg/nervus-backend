@@ -1,10 +1,13 @@
 FROM node:22-alpine AS builder
 WORKDIR /app
 
+# Herramientas necesarias para compilar módulos nativos (bcrypt)
+RUN apk add --no-cache python3 make g++
+
 RUN corepack enable && corepack prepare pnpm@10.27.0 --activate
 
 COPY package.json pnpm-lock.yaml ./
-RUN pnpm install
+RUN pnpm install --unsafe-perm
 
 COPY tsconfig*.json nest-cli.json ./
 COPY src ./src
@@ -25,5 +28,5 @@ COPY --from=builder --chown=appuser:appgroup /app/package.json ./
 
 USER appuser
 
-EXPOSE 4000
+EXPOSE 10000
 CMD ["node", "dist/main"]
