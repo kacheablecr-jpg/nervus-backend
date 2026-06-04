@@ -70,9 +70,11 @@ export class InvoicesService {
       throw new BadRequestException(`Error al consultar POS ONE+: HTTP ${res.status}`)
     }
 
-    const invoices: PosInvoice[] = Array.isArray(res.data) ? res.data : (res.data?.data ?? [])
+    // POS ONE+ devuelve { items: [...] } o array directo
+    const invoices: PosInvoice[] = Array.isArray(res.data)
+      ? res.data
+      : (res.data?.items ?? res.data?.data ?? [])
 
-    // Marcar las de tarjeta automáticamente
     const alreadyEmitted = await this.docRepo.find({
       where: { nervusClientId: clientId },
       select: { posInvoiceId: true } as any,
@@ -80,18 +82,19 @@ export class InvoicesService {
     const emittedIds = new Set(alreadyEmitted.map(d => d.posInvoiceId))
 
     return invoices
-      .filter(inv => inv.status === 'ISSUED' || inv.status === 'EMITIDA')
+      .filter(inv => inv.status === 'COMPLETADA' || inv.status === 'ISSUED' || inv.status === 'EMITIDA')
       .map(inv => ({
         id:            inv.id,
         invoiceNumber: inv.invoiceNumber,
-        total:         inv.total,
-        subtotal:      inv.subtotal,
-        taxAmount:     inv.taxAmount,
-        createdAt:     inv.createdAt,
-        paymentMethods: inv.paymentMethods ?? [],
-        client:        inv.client,
-        // Auto-marcar tarjeta (código TAR o 04)
-        autoSelected:  (inv.paymentMethods ?? []).some(p => p.code === 'TAR' || p.code === '04'),
+        total:         Number(inv.total),
+        subtotal:      Number(inv.subtotal),
+        taxAmount:     Number((inv as any).tax ?? inv.taxAmount ?? 0),
+        createdAt:     (inv as any).date ?? inv.createdAt,
+        paymentMethods: (inv as any).payments ?? inv.paymentMethods ?? [],
+        client:        inv.client
+          ? { name: (inv.client as any).fullName ?? (inv.client as any).name, taxId: (inv.client as any).taxId, idType: (inv.client as any).idType, email: (inv.client as any).email }
+          : undefined,
+        autoSelected:  ((inv as any).payments ?? inv.paymentMethods ?? []).some((p: any) => p.code === 'TAR' || p.code === '04' || p.paymentMethod?.code === 'TAR'),
         alreadyEmitted: emittedIds.has(inv.id),
       }))
   }
@@ -173,7 +176,7 @@ export class InvoicesService {
         posInvoiceId:    inv.id,
         posInvoiceNumber: inv.invoiceNumber,
         posTotal:        inv.total,
-        posDate:         new Date(inv.createdAt),
+        posDate:         new Date((inv as any).date ?? inv.createdAt),
         docType,
         clave,
         consecutivo,
@@ -250,7 +253,7 @@ export class InvoicesService {
       env:            client.haciendaEnv,
       token:          haciendaToken,
       clave,
-      fecha:          new Date(inv.createdAt),
+      fecha:          new Date((inv as any).date ?? inv.createdAt),
       emisorTipo:     client.idType,
       emisorCedula:   client.taxId,
       receptorTipo:   receptor?.tipoIdentificacion,
@@ -313,9 +316,10 @@ export class InvoicesService {
         password: client.posOneAdminPassword,
       }, { timeout: 10000, validateStatus: () => true }),
     )
-    if (res.status !== 200 || !res.data?.access_token) {
+    const token = res.data?.accessToken ?? res.data?.access_token
+    if (res.status !== 200 || !token) {
       throw new BadRequestException('No se pudo autenticar con POS ONE+. Verifique credenciales.')
     }
-    return res.data.access_token as string
+    return token as string
   }
 }
